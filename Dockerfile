@@ -1,6 +1,9 @@
-# RunPod Serverless base (PyTorch 2.4 / CUDA 12.4 / Python 3.11).
-# ComfyUI + worker deps install below; the base already ships torch.
-FROM runpod/pytorch:2.4.0-py3.11-cuda12.4.1-devel-ubuntu22.04
+# RunPod Serverless base (PyTorch 2.8 / CUDA 12.8 / Python 3.11).
+# NOTE: torch >=2.8 is required — ComfyUI's pinned comfy-kitchen==0.2.37 uses
+# builtin generics (list[int]) in torch.library custom ops, which torch 2.4's
+# infer_schema rejects at import time and kills the worker on startup.
+# ComfyUI itself leaves torch unpinned, so tracking a recent torch is correct.
+FROM runpod/pytorch:2.8.0-py3.11-cuda12.8.1-cudnn-devel-ubuntu22.04
 
 ENV DEBIAN_FRONTEND=noninteractive \
     PYTHONUNBUFFERED=1
