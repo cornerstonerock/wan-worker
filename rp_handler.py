@@ -295,7 +295,10 @@ def queue_and_wait(workflow):
         if status.get("completed") or "outputs" in entry:
             outputs = entry.get("outputs", {})
             for node_id, node_out in outputs.items():
-                for key in ("gifs", "videos"):
+                # Newer ComfyUI reports SaveVideo output under "images"
+                # (with kind: "video" metadata); older under "gifs"/"videos".
+                # The extension check below keeps real stills out.
+                for key in ("gifs", "videos", "images"):
                     for f in node_out.get(key, []):
                         name = f.get("filename", "")
                         if name.lower().endswith((".mp4", ".webm", ".mov")):
