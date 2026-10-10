@@ -20,7 +20,9 @@ fetch() { # $1 = subdir, $2 = filename
     return
   fi
   echo "[fetch] $2"
-  aria2c -x 8 -s 8 -o "$out" "$BASE/$1/$2"
+  # --file-allocation=none: RunPod network volumes don't support fallocate(2);
+  # without this, aria2c fails instantly with "No space left on device".
+  aria2c -x 8 -s 8 --file-allocation=none -o "$out" "$BASE/$1/$2"
 }
 
 # --- Diffusion models: Wan2.2 14B, fp8-scaled (~13.3 GB each) ---
