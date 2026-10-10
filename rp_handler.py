@@ -244,7 +244,9 @@ def build_workflow(p):
                 "height": p["height"],
                 "length": p["num_frames"],
                 "batch_size": 1,
-                "image": ["loadimg", 0],
+                # NOTE: current ComfyUI names this input "start_image"
+                # (older docs/workflows used "image").
+                "start_image": ["loadimg", 0],
             },
         }
     else:
