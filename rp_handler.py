@@ -313,13 +313,28 @@ def queue_and_wait(workflow):
 # Image handling (i2v start frame)
 # ----------------------------------------------------------------------------
 def fetch_start_frame(image_url, width, height):
+    # Accept both remote URLs and data: URLs (PulseClone often passes the
+    # character reference as base64). Decode to raw bytes first.
+    if image_url.startswith("data:"):
+        try:
+            header, b64 = image_url.split(",", 1)
+        except ValueError:
+            raise WorkerError("image_url data URL is malformed")
+        if ";base64" not in header:
+            raise WorkerError("only base64 data URLs are supported for image_url")
+        try:
+            raw = base64.b64decode(b64)
+        except Exception as e:
+            raise WorkerError(f"image_url data URL is not valid base64: {e}")
+    else:
+        try:
+            r = requests.get(image_url, timeout=60, headers={"User-Agent": "pulseclone-wan-worker/1.0"})
+            r.raise_for_status()
+            raw = r.content
+        except requests.RequestException as e:
+            raise WorkerError(f"Could not download image_url: {e}")
     try:
-        r = requests.get(image_url, timeout=60, headers={"User-Agent": "pulseclone-wan-worker/1.0"})
-        r.raise_for_status()
-    except requests.RequestException as e:
-        raise WorkerError(f"Could not download image_url: {e}")
-    try:
-        img = Image.open(io.BytesIO(r.content)).convert("RGB")
+        img = Image.open(io.BytesIO(raw)).convert("RGB")
     except Exception as e:
         raise WorkerError(f"image_url is not a readable image: {e}")
     img = img.resize((width, height), Image.LANCZOS)
