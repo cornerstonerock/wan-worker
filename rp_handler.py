@@ -349,6 +349,18 @@ def fetch_start_frame(image_url, width, height):
         img = Image.open(io.BytesIO(raw)).convert("RGB")
     except Exception as e:
         raise WorkerError(f"image_url is not a readable image: {e}")
+    # Center-crop to the target aspect ratio first (never stretch the face),
+    # then resize to the exact render dimensions.
+    target_ratio = width / height
+    img_ratio = img.width / img.height
+    if img_ratio > target_ratio:  # too wide: crop the sides
+        new_w = int(img.height * target_ratio)
+        left = (img.width - new_w) // 2
+        img = img.crop((left, 0, left + new_w, img.height))
+    elif img_ratio < target_ratio:  # too tall: crop top/bottom
+        new_h = int(img.width / target_ratio)
+        top = (img.height - new_h) // 2
+        img = img.crop((0, top, img.width, top + new_h))
     img = img.resize((width, height), Image.LANCZOS)
     filename = f"i2v_{uuid.uuid4().hex}.png"
     os.makedirs(INPUT_DIR, exist_ok=True)
