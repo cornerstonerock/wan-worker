@@ -8,7 +8,15 @@
 # All files come from Comfy-Org/Wan_2.2_ComfyUI_Repackaged (Apache-2.0).
 set -e
 
-DEST="${1:-/runpod-volume/models}"
+DEST="$(realpath -m "${1:-/runpod-volume/models}")"
+# Safety guard: never download 64GB to the pod's small container disk.
+# If DEST doesn't resolve under /runpod-volume, fail fast instead of
+# silently filling / and burning GPU hours.
+case "$DEST" in
+  /runpod-volume/*) ;;
+  *) echo "ERROR: refusing to download outside /runpod-volume (got: $DEST)" >&2; exit 1 ;;
+esac
+echo "Downloading to: $DEST"
 BASE="https://huggingface.co/Comfy-Org/Wan_2.2_ComfyUI_Repackaged/resolve/main/split_files"
 
 mkdir -p "$DEST"/diffusion_models "$DEST"/loras "$DEST"/text_encoders "$DEST"/vae
