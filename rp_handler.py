@@ -292,6 +292,10 @@ def queue_and_wait(workflow):
         if not entry:
             continue
         status = entry.get("status", {})
+        # Check for execution errors FIRST: a failed run can still carry an
+        # (empty) "outputs" key, which would otherwise mask the real message.
+        if status.get("status_str") == "error":
+            raise WorkerError(f"ComfyUI execution error: {status.get('messages')}")
         if status.get("completed") or "outputs" in entry:
             outputs = entry.get("outputs", {})
             for node_id, node_out in outputs.items():
@@ -304,8 +308,6 @@ def queue_and_wait(workflow):
                         if name.lower().endswith((".mp4", ".webm", ".mov")):
                             return name, f.get("subfolder", "")
             raise WorkerError(f"ComfyUI finished but produced no video file: {outputs}")
-        if status.get("status_str") == "error":
-            raise WorkerError(f"ComfyUI execution error: {status.get('messages')}")
     raise WorkerError("ComfyUI generation timed out")
 
 
