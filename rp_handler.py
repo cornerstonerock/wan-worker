@@ -11,9 +11,9 @@ workflow structure — dual UNETs (high/low noise fp8) + LightX2V 4-step
 LoRAs, KSamplerAdvanced cascade (steps 0-2 high noise, 2-4 low noise),
 cfg=1.0, euler/simple, ModelSamplingSD3 shift=5.0.
 
-When image_url is present the start frame is VAE-encoded via
-Wan22ImageToVideoLatent (image-to-video); otherwise EmptyHunyuanLatentVideo
-(text-to-video).
+When image_url is present the start frame is injected via WanImageToVideo
+(image-to-video, mirroring ComfyUI's official wan22 example); otherwise
+EmptyHunyuanLatentVideo (text-to-video).
 """
 
 import base64
@@ -172,83 +172,32 @@ def build_workflow(p):
             "class_type": "CLIPTextEncode",
             "inputs": {"clip": ["clip", 0], "text": p["negative_prompt"]},
         },
-        # High-noise expert: steps 0-2 of the 4-step schedule.
-        "ks_high": {
-            "class_type": "KSamplerAdvanced",
-            "inputs": {
-                "model": ["shift_high", 0],
-                "positive": ["pos", 0],
-                "negative": ["neg", 0],
-                "latent_image": ["latent", 0],
-                "add_noise": "enable",
-                "noise_seed": seed,
-                "control_after_generate": "randomize",
-                "steps": STEPS,
-                "cfg": CFG,
-                "sampler_name": SAMPLER,
-                "scheduler": SCHEDULER,
-                "start_at_step": 0,
-                "end_at_step": 2,
-                "return_with_leftover_noise": "enable",
-            },
-        },
-        # Low-noise expert: steps 2-4, continuing from the high-noise latent.
-        "ks_low": {
-            "class_type": "KSamplerAdvanced",
-            "inputs": {
-                "model": ["shift_low", 0],
-                "positive": ["pos", 0],
-                "negative": ["neg", 0],
-                "latent_image": ["ks_high", 0],
-                "add_noise": "disable",
-                "noise_seed": 0,
-                "control_after_generate": "fixed",
-                "steps": STEPS,
-                "cfg": CFG,
-                "sampler_name": SAMPLER,
-                "scheduler": SCHEDULER,
-                "start_at_step": 2,
-                "end_at_step": STEPS,
-                "return_with_leftover_noise": "disable",
-            },
-        },
-        "decode": {
-            "class_type": "VAEDecode",
-            "inputs": {"samples": ["ks_low", 0], "vae": ["vae", 0]},
-        },
-        "mkvideo": {
-            "class_type": "CreateVideo",
-            "inputs": {"images": ["decode", 0], "fps": p["fps"]},
-        },
-        "save": {
-            "class_type": "SaveVideo",
-            "inputs": {
-                "video": ["mkvideo", 0],
-                "filename_prefix": "wan22",
-                "format": "auto",
-                "codec": "auto",
-            },
-        },
     }
 
     if mode == "i2v":
+        # Official Wan 2.2 i2v wiring (ComfyUI_examples/wan22): WanImageToVideo
+        # injects the start frame via concat conditioning and emits the
+        # denoising latent; both samplers take pos/neg from it.
+        # NOTE: Wan22ImageToVideoLatent hardcodes a 48ch packed latent that
+        # mismatches the 2.1 VAE's 16ch output — do not use it.
         wf["loadimg"] = {
             "class_type": "LoadImage",
             "inputs": {"image": p["_image_filename"]},
         }
-        wf["latent"] = {
-            "class_type": "Wan22ImageToVideoLatent",
+        wf["i2v"] = {
+            "class_type": "WanImageToVideo",
             "inputs": {
+                "positive": ["pos", 0],
+                "negative": ["neg", 0],
                 "vae": ["vae", 0],
                 "width": p["width"],
                 "height": p["height"],
                 "length": p["num_frames"],
                 "batch_size": 1,
-                # NOTE: current ComfyUI names this input "start_image"
-                # (older docs/workflows used "image").
                 "start_image": ["loadimg", 0],
             },
         }
+        pos_ref, neg_ref, latent_ref = ["i2v", 0], ["i2v", 1], ["i2v", 2]
     else:
         wf["latent"] = {
             "class_type": "EmptyHunyuanLatentVideo",
@@ -259,6 +208,65 @@ def build_workflow(p):
                 "batch_size": 1,
             },
         }
+        pos_ref, neg_ref, latent_ref = ["pos", 0], ["neg", 0], ["latent", 0]
+
+    # High-noise expert: steps 0-2 of the 4-step schedule.
+    wf["ks_high"] = {
+        "class_type": "KSamplerAdvanced",
+        "inputs": {
+            "model": ["shift_high", 0],
+            "positive": pos_ref,
+            "negative": neg_ref,
+            "latent_image": latent_ref,
+            "add_noise": "enable",
+            "noise_seed": seed,
+            "control_after_generate": "randomize",
+            "steps": STEPS,
+            "cfg": CFG,
+            "sampler_name": SAMPLER,
+            "scheduler": SCHEDULER,
+            "start_at_step": 0,
+            "end_at_step": 2,
+            "return_with_leftover_noise": "enable",
+        },
+    }
+    # Low-noise expert: steps 2-4, continuing from the high-noise latent.
+    wf["ks_low"] = {
+        "class_type": "KSamplerAdvanced",
+        "inputs": {
+            "model": ["shift_low", 0],
+            "positive": pos_ref,
+            "negative": neg_ref,
+            "latent_image": ["ks_high", 0],
+            "add_noise": "disable",
+            "noise_seed": 0,
+            "control_after_generate": "fixed",
+            "steps": STEPS,
+            "cfg": CFG,
+            "sampler_name": SAMPLER,
+            "scheduler": SCHEDULER,
+            "start_at_step": 2,
+            "end_at_step": STEPS,
+            "return_with_leftover_noise": "disable",
+        },
+    }
+    wf["decode"] = {
+        "class_type": "VAEDecode",
+        "inputs": {"samples": ["ks_low", 0], "vae": ["vae", 0]},
+    }
+    wf["mkvideo"] = {
+        "class_type": "CreateVideo",
+        "inputs": {"images": ["decode", 0], "fps": p["fps"]},
+    }
+    wf["save"] = {
+        "class_type": "SaveVideo",
+        "inputs": {
+            "video": ["mkvideo", 0],
+            "filename_prefix": "wan22",
+            "format": "auto",
+            "codec": "auto",
+        },
+    }
     return wf, mode, seed
 
 
